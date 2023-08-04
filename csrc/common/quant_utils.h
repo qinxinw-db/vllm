@@ -17,6 +17,8 @@
 #pragma once
 
 #include "cudaTypeUtils.cuh"
+#include <ATen/cuda/CUDAContext.h>
+#include <torch/extension.h>
 #include <stdint.h>
 
 #ifdef ENABLE_BF16
