@@ -2051,7 +2051,7 @@ inline __device__ void load_int8_kv_cache_vec(Vec_k* tgt_vec, const T* cache_ptr
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 template <typename Vec_k, typename T>
-inline __device__ void store_int8_kv_cache_vec(T* cache, const Vec_k* src_vec, const int cache_idx, const float scale)
+inline __device__ void store_int8_kv_cache_vec(T* cache, const Vec_k& src_vec, const int cache_idx, const float scale)
 {
     // using Packed_Int8_t = typename packed_type<int8_t, num_elems<Vec_k>::value>::type;
     // using Packed_Float_t = typename packed_type<float, num_elems<Vec_k>::value>::type;
