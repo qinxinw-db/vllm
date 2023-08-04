@@ -430,6 +430,7 @@ class PagedAttentionWithALiBi(PagedAttention):
         key_cache: torch.Tensor,
         value_cache: torch.Tensor,
         input_metadata: InputMetadata,
+        enable_in8_kv_cache = True,
     ) -> None:
         """PagedAttention with ALiBi bias for the generation tokens.
 
@@ -454,7 +455,9 @@ class PagedAttentionWithALiBi(PagedAttention):
             input_metadata.context_lens,
             block_size,
             input_metadata.max_context_len,
-            True,
+            input_metadata.k_scale,
+            input_metadata.v_scale,
+            enable_in8_kv_cache,
             self.alibi_slopes,
         )
 
