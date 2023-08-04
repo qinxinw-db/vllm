@@ -175,8 +175,8 @@ __global__ void reshape_and_cache_kernel(
     using T_dst = int8_t;
     using T_src = float4;
 
-    auto key_cache = reinterpret_cast<int8_t*>(key_cache);
-    auto value_cache = reinterpret_cast<int8_t*>(value_cache);
+    int8_t* key_cache_int8 = reinterpret_cast<int8_t*>(key_cache);
+    int8_t* value_cache_int8 = reinterpret_cast<int8_t*>(value_cache);
   }
   
 
@@ -203,8 +203,8 @@ __global__ void reshape_and_cache_kernel(
       auto key_src = reinterpret_cast<const float4*>(key + src_key_idx);
       auto val_src = reinterpret_cast<const float4*>(value + src_value_idx);
 
-	    mmha::store_int8_kv_cache_vec<float4*, int8_t*>(key_cache, key_src, tgt_key_idx, k_scale);
-	    mmha::store_int8_kv_cache_vec<float4*, int8_t*>(value_cache, val_src, tgt_value_idx, v_scale);
+	    mmha::store_int8_kv_cache_vec<float4*, int8_t*>(key_cache_int8, key_src, tgt_key_idx, k_scale);
+	    mmha::store_int8_kv_cache_vec<float4*, int8_t*>(value_cache_int8, val_src, tgt_value_idx, v_scale);
     } else {
       key_cache[tgt_key_idx] = __ldg(&key[src_key_idx]);
       value_cache[tgt_value_idx] = __ldg(&value[src_value_idx]);
