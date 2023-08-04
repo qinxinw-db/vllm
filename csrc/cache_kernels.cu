@@ -8,6 +8,7 @@
 #include <map>
 #include <vector>
 #include <iostream>
+#include <string>
 
 void swap_blocks(
   torch::Tensor& src,
@@ -164,19 +165,18 @@ __global__ void reshape_and_cache_kernel(
   const int block_offset = slot_idx % block_size;
 
   const int n = num_heads * head_size;
-
-  char size_str[100];
-  snprintf(size_str, sizeof(size_str), "size=%u", sizeof(scalar_t));
+  
+  printf("scalar_t size=%u", sizeof(scalar_t));
   // We allow only fp32/fp16/bf16 as input types
-  static_assert(sizeof(scalar_t) == 4 || sizeof(scalar_t) == 2, size_str);
+  static_assert(sizeof(scalar_t) == 4 || sizeof(scalar_t) == 2, "wrong type");
 
   if (enable_int8_kv_cache)  {
     constexpr int X_ELEMS = (sizeof(scalar_t) == 4) ? 4 : 8;
     using T_dst = int8_t;
     using T_src = float4;
 
-    T_dst* key_cache = reinterpret_cast<T_dst*>(key_cache);
-    T_dst* value_cache = reinterpret_cast<T_dst*>(value_cache);
+    auto key_cache = reinterpret_cast<int8_t*>(key_cache);
+    auto value_cache = reinterpret_cast<int8_t*>(value_cache);
   }
   
 
@@ -198,13 +198,13 @@ __global__ void reshape_and_cache_kernel(
                               + head_idx * head_size * block_size
                               + head_offset * block_size
                               + block_offset;
-
-    auto key_src = reinterpret_cast<float4>(key + src_key_idx);
-    auto val_src = reinterpret_cast<float4>(value + src_value_idx);
-                                                        
+                                      
     if (enable_int8_kv_cache) {
-	    mmha::store_int8_kv_cache_vec(key_cache, key_src, tgt_key_idx, k_scale);
-	    mmha::store_int8_kv_cache_vec(value_cache, val_src, tgt_value_idx, v_scale);
+      auto key_src = reinterpret_cast<const float4*>(key + src_key_idx);
+      auto val_src = reinterpret_cast<const float4*>(value + src_value_idx);
+
+	    mmha::store_int8_kv_cache_vec<float4*, int8_t*>(key_cache, key_src, tgt_key_idx, k_scale);
+	    mmha::store_int8_kv_cache_vec<float4*, int8_t*>(value_cache, val_src, tgt_value_idx, v_scale);
     } else {
       key_cache[tgt_key_idx] = __ldg(&key[src_key_idx]);
       value_cache[tgt_value_idx] = __ldg(&value[src_value_idx]);
