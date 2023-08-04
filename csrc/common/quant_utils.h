@@ -300,13 +300,25 @@ struct packed_type<float, 4>
 template <>
 struct packed_type<float, 8>
 {
-    using type = Float8_;
+    using type = float8;
+};
+
+template <>
+struct packed_type<double, 2>
+{
+    using type = float4;
+};
+
+template <>
+struct packed_type<double, 4>
+{
+    using type = float8;
 };
 
 template <>
 struct packed_type<double, 8>
 {
-    using type = Float8_;
+    using type = float16;
 };
 
 
@@ -2109,20 +2121,6 @@ inline __device__ void store_int8_kv_cache_vec(T* cache, const Vec_k& src_vec, c
 
     *reinterpret_cast<Packed_Int8_t*>(&cache[cache_idx]) = out_quant;
 }
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// template <typename T, bool INT8_KV_CACHE>
-// struct kv_cache_type_t
-// {
-//     using Type = T;
-// };
-
-template <typename T>
-struct kv_cache_type_t<T>
-{
-    using Type = int8_t;
-};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
