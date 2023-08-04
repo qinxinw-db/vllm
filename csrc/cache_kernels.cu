@@ -139,12 +139,12 @@ void copy_blocks(
 
 namespace vllm {
 
-template<typename scalar_t, typename kv_cache_t>
+template<typename scalar_t>
 __global__ void reshape_and_cache_kernel(
   const scalar_t* __restrict__ key,     // [num_tokens, num_heads, head_size]
   const scalar_t* __restrict__ value,   // [num_tokens, num_heads, head_size]
-  kv_cache_t* __restrict__ key_cache,     // [num_blocks, num_heads, head_size/x, block_size, x]
-  kv_cache_t* __restrict__ value_cache,   // [num_blocks, num_heads, head_size, block_size]
+  scalar_t* __restrict__ key_cache,     // [num_blocks, num_heads, head_size/x, block_size, x]
+  scalar_t* __restrict__ value_cache,   // [num_blocks, num_heads, head_size, block_size]
   const int* __restrict__ slot_mapping, // [num_tokens]
   const int key_stride,
   const int value_stride,
@@ -162,7 +162,19 @@ __global__ void reshape_and_cache_kernel(
 
   const int n = num_heads * head_size;
   
+  // We allow only fp32/fp16/bf16 as input types
+  static_assert(sizeof(scalar_t) == 4 || sizeof(scalar_t) == 2, "");
+
+  if (enable_int8_kv_cache)  {
+    constexpr int X_ELEMS = (sizeof(scalar_t) == 4) ? 4 : 8;
+    using T_dst = typename mmha::kv_cache_type_t<scalar_t>::Type;
+    using T_src = typename mmha::packed_type<scalar_t, X_ELEMS>::type;
+
+    T_dst* key_cache = reinterpret_cast<T_dst*>(key_cache);
+    T_dst* value_cache = reinterpret_cast<T_dst*>(value_cache);
+  }
   
+
   for (int i = threadIdx.x; i < n; i += blockDim.x) {
     const int src_key_idx = token_idx * key_stride + i;
     const int src_value_idx = token_idx * value_stride + i;
@@ -182,9 +194,12 @@ __global__ void reshape_and_cache_kernel(
                               + head_offset * block_size
                               + block_offset;
 
+    T_src* key_src = reinterpret_cast<const T_src*>(key + src_key_idx);
+    T_src* val_src = reinterpret_cast<const T_src*>(value + src_value_idx);
+                                                        
     if (enable_int8_kv_cache) {
-      store_int8_kv_cache_vec(key_cache, key[src_key_idx], tgt_key_idx, k_scale)
-      store_int8_kv_cache_vec(value_cache, value[src_value_idx], tgt_value_idx, v_scale)
+      store_int8_kv_cache_vec(key_cache, key_src, tgt_key_idx, k_scale);
+      store_int8_kv_cache_vec(value_cache, val_src, tgt_value_idx, v_scale);
     } else {
       key_cache[tgt_key_idx] = __ldg(&key[src_key_idx]);
       value_cache[tgt_value_idx] = __ldg(&value[src_value_idx]);
@@ -223,11 +238,11 @@ void reshape_and_cache(
     key.scalar_type(),
     "reshape_and_cache_kernel",
     [&] {
-      vllm::reshape_and_cache_kernel<scalar_t, kv_cache_t><<<grid, block, 0, stream>>>(
+      vllm::reshape_and_cache_kernel<scalar_t><<<grid, block, 0, stream>>>(
         key.data_ptr<scalar_t>(),
         value.data_ptr<scalar_t>(),
-        key_cache.data_ptr<kv_cache_t>(),
-        value_cache.data_ptr<kv_cache_t>(),
+        key_cache.data_ptr<scalar_t>(),
+        value_cache.data_ptr<scalar_t>(),
         slot_mapping.data_ptr<int>(),
         key_stride,
         value_stride,
@@ -244,12 +259,12 @@ void reshape_and_cache(
 namespace vllm {
 
 // Grid: (num_blocks, block_size).
-template<typename scalar_t, typename kv_cache_t>
+template<typename scalar_t>
 __global__ void gather_cached_kv_kernel(
   scalar_t* __restrict__ key,             // [num_tokens, [stride], num_heads, head_size]
   scalar_t* __restrict__ value,           // [num_tokens, [stride], num_heads, head_size]
-  const kv_cache_t* __restrict__ key_cache,   // [num_blocks, num_heads, head_size/x, block_size, x]
-  const kv_cache_t* __restrict__ value_cache,   // [num_blocks, num_heads, head_size, block_size]
+  const scalar_t* __restrict__ key_cache,   // [num_blocks, num_heads, head_size/x, block_size, x]
+  const scalar_t* __restrict__ value_cache,   // [num_blocks, num_heads, head_size, block_size]
   const int* __restrict__ slot_mapping,   // [num_tokens]
   const int key_stride,
   const int value_stride,
@@ -287,12 +302,12 @@ __global__ void gather_cached_kv_kernel(
     }
 }
 
-template <typename scalar_t, typename kv_cache_t>
+template <typename scalar_t>
 __global__ void gather_cached_kv_kernel_optimized(
     scalar_t *__restrict__ key,             // [num_tokens, [stride], num_heads, head_size]
     scalar_t *__restrict__ value,           // [num_tokens, [stride], num_heads, head_size]
-    const kv_cache_t *__restrict__ key_cache, // [num_blocks, num_heads, head_size/x, block_size, x]
-    const kv_cache_t *__restrict__ value_cache, // [num_blocks, num_heads, head_size, block_size]
+    const scalar_t *__restrict__ key_cache, // [num_blocks, num_heads, head_size/x, block_size, x]
+    const scalar_t *__restrict__ value_cache, // [num_blocks, num_heads, head_size, block_size]
     const int *__restrict__ slot_mapping,   // [num_tokens]
     const int key_stride,
     const int value_stride,
@@ -394,11 +409,11 @@ void gather_cached_kv(
     key.scalar_type(),
     "gather_cached_kv_kernel_optimized",
     [&] {
-      vllm::gather_cached_kv_kernel_optimized<scalar_t, kv_cache_t><<<grid, block, 0, stream>>>(
+      vllm::gather_cached_kv_kernel_optimized<scalar_t><<<grid, block, 0, stream>>>(
         key.data_ptr<scalar_t>(),
         value.data_ptr<scalar_t>(),
-        key_cache.data_ptr<kv_cache_t>(),
-        value_cache.data_ptr<kv_cache_t>(),
+        key_cache.data_ptr<scalar_t>(),
+        value_cache.data_ptr<scalar_t>(),
         slot_mapping.data_ptr<int>(),
         key_stride,
         value_stride,

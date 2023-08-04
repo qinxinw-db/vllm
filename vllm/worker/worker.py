@@ -242,6 +242,8 @@ class Worker:
         for seq_group_metadata in seq_group_metadata_list:
             seq_data.update(seq_group_metadata.seq_data)
 
+        k_scale = 1
+        v_scale = 1
         input_metadata = InputMetadata(
             seq_groups=seq_groups,
             seq_data=seq_data,
@@ -250,6 +252,8 @@ class Worker:
             context_lens=context_lens_tensor,
             max_context_len=max_context_len,
             block_tables=block_tables_tensor,
+            k_scale=k_scale,
+            v_scale=v_scale
         )
         return tokens_tensor, positions_tensor, input_metadata
 

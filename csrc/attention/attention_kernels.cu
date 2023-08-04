@@ -68,15 +68,14 @@ inline __device__ float block_sum(float* red_smem, float sum) {
 // Grid: (num_heads, num_seqs).
 template<
   typename scalar_t,
-  typename kv_cache_t,
   int HEAD_SIZE,
   int BLOCK_SIZE,
   int NUM_THREADS>
 __global__ void single_query_cached_kv_attention_kernel(
   scalar_t* __restrict__ out,             // [num_seqs, num_heads, head_size]
   const scalar_t* __restrict__ q,         // [num_seqs, num_heads, head_size]
-  const kv_cache_t* __restrict__ k_cache,   // [num_blocks, num_kv_heads, head_size/x, block_size, x]
-  const kv_cache_t* __restrict__ v_cache,   // [num_blocks, num_kv_heads, head_size, block_size]
+  const scalar_t* __restrict__ k_cache,   // [num_blocks, num_kv_heads, head_size/x, block_size, x]
+  const scalar_t* __restrict__ v_cache,   // [num_blocks, num_kv_heads, head_size, block_size]
   const int* __restrict__ head_mapping,   // [num_heads]
   const float scale,
   const int* __restrict__ block_tables,   // [num_seqs, max_num_blocks_per_seq]
@@ -166,7 +165,7 @@ __global__ void single_query_cached_kv_attention_kernel(
 
 #pragma unroll
       for (int j = 0; j < NUM_VECS_PER_THREAD; j++) {
-        const kv_cache_t* k_cache_ptr = k_cache + physical_block_number * kv_block_stride
+        const scalar_t* k_cache_ptr = k_cache + physical_block_number * kv_block_stride
                                         + kv_head_idx * kv_head_stride
                                         + physical_block_offset * x;
         const int vec_idx = thread_group_offset + j * THREAD_GROUP_SIZE;
