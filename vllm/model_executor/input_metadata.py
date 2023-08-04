@@ -29,6 +29,8 @@ class InputMetadata:
         context_lens: torch.Tensor,
         max_context_len: int,
         block_tables: torch.Tensor,
+        k_scale: float,
+        v_scale: float,
     ) -> None:
         self.seq_groups = seq_groups
         self.seq_data = seq_data
@@ -37,6 +39,8 @@ class InputMetadata:
         self.context_lens = context_lens
         self.max_context_len = max_context_len
         self.block_tables = block_tables
+        self.k_scale = k_scale
+        self.v_scale = v_scale
 
         self.num_prompts = len(prompt_lens)
         self.num_prompt_tokens = sum(prompt_lens)

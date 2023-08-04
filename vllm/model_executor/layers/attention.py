@@ -128,6 +128,7 @@ class PagedAttention(nn.Module):
         key_cache: torch.Tensor,
         value_cache: torch.Tensor,
         input_metadata: InputMetadata,
+        enable_in8_kv_cache = True,
     ) -> None:
         """PagedAttention for the generation tokens.
 
@@ -152,6 +153,9 @@ class PagedAttention(nn.Module):
             input_metadata.context_lens,
             block_size,
             input_metadata.max_context_len,
+            input_metadata.k_scale,
+            input_metadata.v_scale,
+            enable_in8_kv_cache,
             None,  # alibi_slopes
         )
 
@@ -210,6 +214,12 @@ class PagedAttention(nn.Module):
         # Wait until the cache op is done.
         if cache_event is not None:
             cache_event.wait()
+        
+        # compute quanization scale
+        # Quantize
+        # k_scale = get_compress_scale(key)
+        # v_scale = get_compress_scale(value)
+        
 
         # Reshape the keys and values and store them in the cache.
         # When key_cache and value_cache are not provided, the new key
@@ -224,6 +234,9 @@ class PagedAttention(nn.Module):
                 key_cache,
                 value_cache,
                 input_metadata.slot_mapping,
+                True,
+                input_metadata.k_scale,
+                input_metadata.v_scale,
             )
 
         if input_metadata.num_generation_tokens > 0:
@@ -441,5 +454,44 @@ class PagedAttentionWithALiBi(PagedAttention):
             input_metadata.context_lens,
             block_size,
             input_metadata.max_context_len,
+            True,
             self.alibi_slopes,
         )
+
+def get_compress_scale(tensor, comp_config):
+    """
+    Compress a torch.Tensor. Round up the shape to group boundary.
+    Copied from https://github.com/FMInference/FlexGen/blob/d34f7b4b43ed87a374f394b0535ed685af66197b/flexgen/compression.py#L87-L144
+    """
+
+    group_size, num_bits, group_dim, symmetric = (
+        comp_config['group_size'], comp_config['num_bits'],
+        comp_config['group_dim'], comp_config['symmetric'])
+    assert num_bits == 4 and group_size % 2 == 0 and not symmetric
+
+    if tensor.device.type == "cpu" and tensor.dtype == torch.float16:
+        tensor = tensor.float()
+
+    shape = tensor.shape
+    num_groups = (shape[group_dim] + group_size - 1) // group_size
+
+    # Pad
+    new_shape = (shape[:group_dim] + (num_groups, group_size) +
+                    shape[group_dim+1:])
+    pad_len = (group_size - shape[group_dim] % group_size) % group_size
+    if pad_len != 0:
+        pad_shape = shape[:group_dim] + (pad_len,) + shape[group_dim+1:]
+        tensor = torch.cat([
+            tensor,
+            torch.zeros(pad_shape, dtype=tensor.dtype, device=tensor.device)],
+            dim=group_dim)
+    data = tensor.view(new_shape)
+
+    # Quantize
+    B = 2 ** num_bits - 1
+    mn = torch.min(data, dim=group_dim + 1, keepdim=True)[0]
+    mx = torch.max(data, dim=group_dim + 1, keepdim=True)[0]
+
+    scale = B / (mx - mn)
+
+    return scale

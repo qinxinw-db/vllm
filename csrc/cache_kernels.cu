@@ -139,25 +139,30 @@ void copy_blocks(
 
 namespace vllm {
 
-template<typename scalar_t>
+template<typename scalar_t, typename kv_cache_t>
 __global__ void reshape_and_cache_kernel(
   const scalar_t* __restrict__ key,     // [num_tokens, num_heads, head_size]
   const scalar_t* __restrict__ value,   // [num_tokens, num_heads, head_size]
-  scalar_t* __restrict__ key_cache,     // [num_blocks, num_heads, head_size/x, block_size, x]
-  scalar_t* __restrict__ value_cache,   // [num_blocks, num_heads, head_size, block_size]
+  kv_cache_t* __restrict__ key_cache,     // [num_blocks, num_heads, head_size/x, block_size, x]
+  kv_cache_t* __restrict__ value_cache,   // [num_blocks, num_heads, head_size, block_size]
   const int* __restrict__ slot_mapping, // [num_tokens]
   const int key_stride,
   const int value_stride,
   const int num_heads,
   const int head_size,
   const int block_size,
-  const int x) {
+  const int x,
+  const bool enable_int8_kv_cache,
+  const float k_scale,
+  const float v_scale) {
   const int token_idx = blockIdx.x;
   const int slot_idx = slot_mapping[token_idx];
   const int block_idx = slot_idx / block_size;
   const int block_offset = slot_idx % block_size;
 
   const int n = num_heads * head_size;
+  
+  
   for (int i = threadIdx.x; i < n; i += blockDim.x) {
     const int src_key_idx = token_idx * key_stride + i;
     const int src_value_idx = token_idx * value_stride + i;
@@ -176,8 +181,14 @@ __global__ void reshape_and_cache_kernel(
                               + head_idx * head_size * block_size
                               + head_offset * block_size
                               + block_offset;
-    key_cache[tgt_key_idx] = __ldg(&key[src_key_idx]);
-    value_cache[tgt_value_idx] = __ldg(&value[src_value_idx]);
+
+    if (enable_int8_kv_cache) {
+      store_int8_kv_cache_vec(key_cache, key[src_key_idx], tgt_key_idx, k_scale)
+      store_int8_kv_cache_vec(value_cache, value[src_value_idx], tgt_value_idx, v_scale)
+    } else {
+      key_cache[tgt_key_idx] = __ldg(&key[src_key_idx]);
+      value_cache[tgt_value_idx] = __ldg(&value[src_value_idx]);
+    }
   }
 }
 
@@ -188,7 +199,11 @@ void reshape_and_cache(
   torch::Tensor& value,         // [num_tokens, num_heads, head_size]
   torch::Tensor& key_cache,     // [num_blocks, num_heads, head_size/x, block_size, x]
   torch::Tensor& value_cache,   // [num_blocks, num_heads, head_size, block_size]
-  torch::Tensor& slot_mapping)  // [num_tokens]
+  torch::Tensor& slot_mapping, // [num_tokens]
+  bool enable_int8_kv_cache,
+  float k_scale, // quantization scale
+  float v_scale,
+  )  
 {
   int num_tokens = key.size(0);
   int num_heads = key.size(1);
@@ -208,30 +223,33 @@ void reshape_and_cache(
     key.scalar_type(),
     "reshape_and_cache_kernel",
     [&] {
-      vllm::reshape_and_cache_kernel<scalar_t><<<grid, block, 0, stream>>>(
+      vllm::reshape_and_cache_kernel<scalar_t, kv_cache_t><<<grid, block, 0, stream>>>(
         key.data_ptr<scalar_t>(),
         value.data_ptr<scalar_t>(),
-        key_cache.data_ptr<scalar_t>(),
-        value_cache.data_ptr<scalar_t>(),
+        key_cache.data_ptr<kv_cache_t>(),
+        value_cache.data_ptr<kv_cache_t>(),
         slot_mapping.data_ptr<int>(),
         key_stride,
         value_stride,
         num_heads,
         head_size,
         block_size,
-        x);
+        x,
+        enable_int8_kv_cache,
+        k_scale,
+        v_scale);
     });
 }
 
 namespace vllm {
 
 // Grid: (num_blocks, block_size).
-template<typename scalar_t>
+template<typename scalar_t, typename kv_cache_t>
 __global__ void gather_cached_kv_kernel(
   scalar_t* __restrict__ key,             // [num_tokens, [stride], num_heads, head_size]
   scalar_t* __restrict__ value,           // [num_tokens, [stride], num_heads, head_size]
-  const scalar_t* __restrict__ key_cache,   // [num_blocks, num_heads, head_size/x, block_size, x]
-  const scalar_t* __restrict__ value_cache,   // [num_blocks, num_heads, head_size, block_size]
+  const kv_cache_t* __restrict__ key_cache,   // [num_blocks, num_heads, head_size/x, block_size, x]
+  const kv_cache_t* __restrict__ value_cache,   // [num_blocks, num_heads, head_size, block_size]
   const int* __restrict__ slot_mapping,   // [num_tokens]
   const int key_stride,
   const int value_stride,
@@ -269,19 +287,21 @@ __global__ void gather_cached_kv_kernel(
     }
 }
 
-template <typename scalar_t>
+template <typename scalar_t, typename kv_cache_t>
 __global__ void gather_cached_kv_kernel_optimized(
     scalar_t *__restrict__ key,             // [num_tokens, [stride], num_heads, head_size]
     scalar_t *__restrict__ value,           // [num_tokens, [stride], num_heads, head_size]
-    const scalar_t *__restrict__ key_cache, // [num_blocks, num_heads, head_size/x, block_size, x]
-    const scalar_t *__restrict__ value_cache, // [num_blocks, num_heads, head_size, block_size]
+    const kv_cache_t *__restrict__ key_cache, // [num_blocks, num_heads, head_size/x, block_size, x]
+    const kv_cache_t *__restrict__ value_cache, // [num_blocks, num_heads, head_size, block_size]
     const int *__restrict__ slot_mapping,   // [num_tokens]
     const int key_stride,
     const int value_stride,
     const int num_heads,
     const int head_size,
     const int block_size,
-    const int x)
+    const int x,
+    const bool enable_int8_kv_cache,
+    const float scale)
 {
     const int token_idx = blockIdx.x;
     const int slot_idx = slot_mapping[token_idx];
@@ -332,6 +352,7 @@ __global__ void gather_cached_kv_kernel_optimized(
 
             keys_to_store[j] = __ldg(&key_cache[src_key_idx]);
             values_to_store[j] = __ldg(&value_cache[src_value_idx]);
+            
         }
 
         #pragma unroll
@@ -350,7 +371,10 @@ void gather_cached_kv(
   torch::Tensor& value,         // [out] [num_tokens, num_heads, head_size]
   torch::Tensor& key_cache,     // [in]  [num_blocks, num_heads, head_size/x, block_size, x]
   torch::Tensor& value_cache,   // [in]  [num_blocks, num_heads, head_size, block_size]
-  torch::Tensor& slot_mapping)  // [in]  [num_tokens]
+  torch::Tensor& slot_mapping, // [in]  [num_tokens]
+  bool enable_int8_kv_cache,
+  float scale,
+  )  
 {
   int num_tokens = key.size(0);
   int num_heads = key.size(1);
@@ -370,17 +394,19 @@ void gather_cached_kv(
     key.scalar_type(),
     "gather_cached_kv_kernel_optimized",
     [&] {
-      vllm::gather_cached_kv_kernel_optimized<scalar_t><<<grid, block, 0, stream>>>(
+      vllm::gather_cached_kv_kernel_optimized<scalar_t, kv_cache_t><<<grid, block, 0, stream>>>(
         key.data_ptr<scalar_t>(),
         value.data_ptr<scalar_t>(),
-        key_cache.data_ptr<scalar_t>(),
-        value_cache.data_ptr<scalar_t>(),
+        key_cache.data_ptr<kv_cache_t>(),
+        value_cache.data_ptr<kv_cache_t>(),
         slot_mapping.data_ptr<int>(),
         key_stride,
         value_stride,
         num_heads,
         head_size,
         block_size,
-        x);
+        x,
+        enable_int8_kv_cache,
+        scale);
     });
 }
