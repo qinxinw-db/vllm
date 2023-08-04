@@ -250,37 +250,37 @@ struct packed_type<half, 8>
 };
 
 template <>
-struct packed_type<at::ScalarType::Half, 2>
+struct packed_type<c10::Half, 2>
 {
     using type = float;
 };
 
 template <>
-struct packed_type<at::ScalarType::Half, 4>
+struct packed_type<c10::Half, 4>
 {
     using type = float2;
 };
 
 template <>
-struct packed_type<at::ScalarType::Half, 8>
+struct packed_type<c10::Half, 8>
 {
     using type = float4;
 };
 
 template <>
-struct packed_type<at::ScalarType::BFloat16, 2>
+struct packed_type<c10::BFloat16, 2>
 {
     using type = float;
 };
 
 template <>
-struct packed_type<at::ScalarType::BFloat16, 4>
+struct packed_type<c10::BFloat16, 4>
 {
     using type = float2;
 };
 
 template <>
-struct packed_type<at::ScalarType::BFloat16, 8>
+struct packed_type<c10::BFloat16, 8>
 {
     using type = float4;
 };
