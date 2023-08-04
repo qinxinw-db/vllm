@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "tensorrt_llm/common/cudaTypeUtils.cuh"
+#include "cudaTypeUtils.cuh"
 #include <stdint.h>
 
 #ifdef ENABLE_BF16
@@ -28,10 +28,6 @@ using tensorrt_llm::common::bf16hmul;
 using tensorrt_llm::common::bf16hadd2;
 #endif
 
-namespace tensorrt_llm
-{
-namespace kernels
-{
 
 namespace mmha
 {
@@ -251,23 +247,6 @@ struct packed_type<half, 8>
     using type = uint4;
 };
 
-template <>
-struct packed_type<__nv_bfloat16, 2>
-{
-    using type = __nv_bfloat162;
-};
-
-template <>
-struct packed_type<__nv_bfloat16, 4>
-{
-    using type = bf16_4_t;
-};
-
-template <>
-struct packed_type<__nv_bfloat16, 8>
-{
-    using type = bf16_8_t;
-};
 
 template <>
 struct packed_type<float, 2>
@@ -2500,5 +2479,4 @@ __device__ __host__ constexpr inline T const& const_max(T const& a, T const& b)
 }
 
 } // namespace mmha
-} // namespace kernels
-} // namespace tensorrt_llm
+
