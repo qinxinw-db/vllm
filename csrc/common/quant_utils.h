@@ -247,6 +247,41 @@ struct packed_type<half, 8>
     using type = uint4;
 };
 
+template <>
+struct packed_type<at::ScalarType::Half, 2>
+{
+    using type = float;
+};
+
+template <>
+struct packed_type<at::ScalarType::Half, 4>
+{
+    using type = float2;
+};
+
+template <>
+struct packed_type<at::ScalarType::Half, 8>
+{
+    using type = float4;
+};
+
+template <>
+struct packed_type<at::ScalarType::BFloat16, 2>
+{
+    using type = float;
+};
+
+template <>
+struct packed_type<at::ScalarType::BFloat16, 4>
+{
+    using type = float2;
+};
+
+template <>
+struct packed_type<at::ScalarType::BFloat16, 8>
+{
+    using type = float4;
+};
 
 template <>
 struct packed_type<float, 2>
@@ -265,6 +300,13 @@ struct packed_type<float, 8>
 {
     using type = Float8_;
 };
+
+template <>
+struct packed_type<double, 8>
+{
+    using type = Float8_;
+};
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
