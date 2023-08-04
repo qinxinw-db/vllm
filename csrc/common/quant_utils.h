@@ -1840,8 +1840,7 @@ inline __device__ void convert_from_float(uint4* dst, Float8_ src)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef ENABLE_BF16
-inline __device__ void convert_from_float(bf16_4_t* dst, Float4_ src)
+inline __device__ void convert_from_float(vllm::bf16_4_t* dst, Float4_ src)
 {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
     dst->x = __float22bfloat162_rn(src.x);
@@ -1854,14 +1853,14 @@ inline __device__ void convert_from_float(bf16_4_t* dst, Float4_ src)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-inline __device__ void convert_from_float(bf16_4_t* dst, float4 src)
+inline __device__ void convert_from_float(vllm::bf16_4_t* dst, float4 src)
 {
     convert_from_float(dst, Float4_{make_float2(src.x, src.y), make_float2(src.z, src.w)});
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-inline __device__ void convert_from_float(bf16_8_t* dst, Float8_ src)
+inline __device__ void convert_from_float(vllm::bf16_8_t* dst, Float8_ src)
 {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
     dst->x = __float22bfloat162_rn(src.x);
@@ -1875,7 +1874,6 @@ inline __device__ void convert_from_float(bf16_8_t* dst, Float8_ src)
     dst->w = __floats2bfloat162_rn(src.w.x, src.w.y);
 #endif
 }
-#endif // ENABLE_BF16
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 

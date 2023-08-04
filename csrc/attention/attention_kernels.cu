@@ -274,7 +274,7 @@ __global__ void single_query_cached_kv_attention_kernel(
         if (enable_int8_kv_cache) {
           mmha::load_int8_kv_cache_vec(&v_vec, v_cache_ptr, offset, v_scale);
         } else {
-          v_vec = *reinterpret_cast<const V_vec*>(v_ptr + offset);
+          v_vec = *reinterpret_cast<const V_vec*>(v_cache_ptr + offset);
         }
         accs[i] += dot(logits_vec, v_vec);
       }
