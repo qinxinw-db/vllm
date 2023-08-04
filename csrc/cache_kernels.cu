@@ -168,12 +168,12 @@ __global__ void reshape_and_cache_kernel(
   
   printf("scalar_t size=%u", sizeof(scalar_t));
   // We allow only fp32/fp16/bf16 as input types
-  static_assert(sizeof(scalar_t) == 4 || sizeof(scalar_t) == 8, "wrong type");
+  static_assert(sizeof(scalar_t)==2 ||sizeof(scalar_t) == 4 || sizeof(scalar_t) == 8, "wrong type");
 
   int8_t* key_cache_int8 = reinterpret_cast<int8_t*>(key_cache);
   int8_t* value_cache_int8 = reinterpret_cast<int8_t*>(value_cache);
 
-  constexpr int X_ELEMS = (sizeof(scalar_t) == 4)? 4: 8;
+  constexpr int X_ELEMS = 16 / sizeof(scalar_t);
   using T_src = typename mmha::packed_type<scalar_t, X_ELEMS>::type;
 
   const T_src* key_src = reinterpret_cast<const T_src*>(key);
