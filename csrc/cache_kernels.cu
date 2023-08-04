@@ -173,11 +173,11 @@ __global__ void reshape_and_cache_kernel(
   int8_t* key_cache_int8 = reinterpret_cast<int8_t*>(key_cache);
   int8_t* value_cache_int8 = reinterpret_cast<int8_t*>(value_cache);
 
-  constexpr int X_ELEMS = (sizeof(scalar_t) == 4) ? 4 : 8);
+  constexpr int X_ELEMS = (sizeof(scalar_t) == 4)? 4: 8;
   using T_src = typename mmha::packed_type<scalar_t, X_ELEMS>::type;
 
-  T_src* key_src = reinterpret_cast<const T_src*>(key);
-  T_src* val_src = reinterpret_cast<const T_src*>(value);
+  const T_src* key_src = reinterpret_cast<const T_src*>(key);
+  const T_src* val_src = reinterpret_cast<const T_src*>(value);
 
   for (int i = threadIdx.x; i < n; i += blockDim.x) {
     const int src_key_idx = token_idx * key_stride + i;
@@ -199,8 +199,8 @@ __global__ void reshape_and_cache_kernel(
                               + block_offset;
                                       
     if (enable_int8_kv_cache) {
-	    mmha::store_int8_kv_cache_vec<T_src, int8_t>(key_cache_int8, key_src[src_key_idx], tgt_key_idx, k_scale);
-	    mmha::store_int8_kv_cache_vec<T_src, int8_t>(value_cache_int8, val_src[src_value_idx], tgt_value_idx, v_scale);
+	    mmha::store_int8_kv_cache_vec<const T_src, int8_t>(key_cache_int8, key_src[src_key_idx], tgt_key_idx, k_scale);
+	    mmha::store_int8_kv_cache_vec<const T_src, int8_t>(value_cache_int8, val_src[src_value_idx], tgt_value_idx, v_scale);
     } else {
       key_cache[tgt_key_idx] = __ldg(&key[src_key_idx]);
       value_cache[tgt_value_idx] = __ldg(&value[src_value_idx]);
@@ -424,3 +424,5 @@ void gather_cached_kv(
         x,
         enable_int8_kv_cache,
         scale);
+      }
+}
