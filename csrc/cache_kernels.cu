@@ -1,10 +1,14 @@
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
+#include "common/quant_utils.h"
+
 
 #include <algorithm>
 #include <cassert>
 #include <map>
 #include <vector>
+#include <iostream>
+#include <string>
 
 void swap_blocks(
   torch::Tensor& src,
@@ -161,14 +165,16 @@ __global__ void reshape_and_cache_kernel(
   const int block_offset = slot_idx % block_size;
 
   const int n = num_heads * head_size;
-  
+
+  string size_str[100];
+  snprintf(size_str, sizeof(size_str), "size=%u", sizeof(scalar_t));
   // We allow only fp32/fp16/bf16 as input types
-  static_assert(sizeof(scalar_t) == 4 || sizeof(scalar_t) == 2, "");
+  static_assert(sizeof(scalar_t) == 4 || sizeof(scalar_t) == 2, std::string(size_str));
 
   if (enable_int8_kv_cache)  {
     constexpr int X_ELEMS = (sizeof(scalar_t) == 4) ? 4 : 8;
-    using T_dst = typename mmha::kv_cache_type_t<scalar_t>::Type;
-    using T_src = typename mmha::packed_type<scalar_t, X_ELEMS>::type;
+    using T_dst = int8_t;
+    using T_src = float4;
 
     T_dst* key_cache = reinterpret_cast<T_dst*>(key_cache);
     T_dst* value_cache = reinterpret_cast<T_dst*>(value_cache);
@@ -194,12 +200,12 @@ __global__ void reshape_and_cache_kernel(
                               + head_offset * block_size
                               + block_offset;
 
-    T_src* key_src = reinterpret_cast<const T_src*>(key + src_key_idx);
-    T_src* val_src = reinterpret_cast<const T_src*>(value + src_value_idx);
+    auto key_src = reinterpret_cast<float4>(key + src_key_idx);
+    auto val_src = reinterpret_cast<float4>(value + src_value_idx);
                                                         
     if (enable_int8_kv_cache) {
-      store_int8_kv_cache_vec(key_cache, key_src, tgt_key_idx, k_scale);
-      store_int8_kv_cache_vec(value_cache, val_src, tgt_value_idx, v_scale);
+	    mmha::store_int8_kv_cache_vec(key_cache, key_src, tgt_key_idx, k_scale);
+	    mmha::store_int8_kv_cache_vec(value_cache, val_src, tgt_value_idx, v_scale);
     } else {
       key_cache[tgt_key_idx] = __ldg(&key[src_key_idx]);
       value_cache[tgt_value_idx] = __ldg(&value[src_value_idx]);
@@ -217,7 +223,7 @@ void reshape_and_cache(
   torch::Tensor& slot_mapping, // [num_tokens]
   bool enable_int8_kv_cache,
   float k_scale, // quantization scale
-  float v_scale,
+  float v_scale
   )  
 {
   int num_tokens = key.size(0);
@@ -388,7 +394,7 @@ void gather_cached_kv(
   torch::Tensor& value_cache,   // [in]  [num_blocks, num_heads, head_size, block_size]
   torch::Tensor& slot_mapping, // [in]  [num_tokens]
   bool enable_int8_kv_cache,
-  float scale,
+  float scale
   )  
 {
   int num_tokens = key.size(0);
