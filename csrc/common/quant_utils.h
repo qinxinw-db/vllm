@@ -157,13 +157,13 @@ struct num_elems<__nv_bfloat162>
 };
 
 template <>
-struct num_elems<bf16_4_t>
+struct num_elems<vllm::bf16_4_t>
 {
     static constexpr int value = 4;
 };
 
 template <>
-struct num_elems<bf16_8_t>
+struct num_elems<vllm::bf16_8_t>
 {
     static constexpr int value = 8;
 };

@@ -177,7 +177,7 @@ __global__ void single_query_cached_kv_attention_kernel(
         const int offset2 = (vec_idx * VEC_SIZE) % x;
         const int offset = offset1 * BLOCK_SIZE * x + offset2;
         if (enable_int8_kv_cache) {
-          mmha::load_int8_kv_cache_vec(k_vecs + j, k_cache_ptr, offset, k_scale);
+          mmha::load_int8_kv_cache_vec(&k_vecs[j], k_cache_ptr, offset, k_scale);
         } else {
           k_vecs[j] = *reinterpret_cast<const K_vec*>(k_cache_ptr + offset);
         }
@@ -272,7 +272,7 @@ __global__ void single_query_cached_kv_attention_kernel(
         // V_vec v_vec = *reinterpret_cast<const V_vec*>(v_ptr + offset);
         V_vec v_vec;
         if (enable_int8_kv_cache) {
-          mmha::load_int8_kv_cache_vec(v_vec, v_cache_ptr, offset, v_scale);
+          mmha::load_int8_kv_cache_vec(&v_vec, v_cache_ptr, offset, v_scale);
         } else {
           v_vec = *reinterpret_cast<const V_vec*>(v_ptr + offset);
         }
