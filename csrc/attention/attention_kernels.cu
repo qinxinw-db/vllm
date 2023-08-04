@@ -514,6 +514,9 @@ void single_query_cached_kv_attention(
   torch::Tensor& context_lens,    // [num_seqs]
   int block_size,
   int max_context_len,
+  float k_scale,
+  float v_scale,
+  bool enable_in8_kv_cache,
   const c10::optional<torch::Tensor>& alibi_slopes) {
   if (query.dtype() == at::ScalarType::Float) {
     CALL_KERNEL_LAUNCHER_BLOCK_SIZE(float);
