@@ -566,6 +566,7 @@ __device__ inline __nv_bfloat162 cuda_abs(__nv_bfloat162 val)
 
 #endif // ENABLE_FP16
 
+#ifdef ENABLE
 template <typename To, typename Ti>
 __device__ inline To cuda_sum(Ti val)
 {
@@ -596,6 +597,7 @@ __device__ inline half cuda_max(half2 val)
 {
     return __hmax(val.x, val.y);
 }
+#endif
 
 #ifdef ENABLE_BF16
 template <>

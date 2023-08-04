@@ -44,6 +44,18 @@ struct Float8_
     float2 w;
 };
 
+struct Float16_
+{
+    float2 x;
+    float2 y;
+    float2 z;
+    float2 w;
+    float2 u;
+    float2 v;
+    float2 s;
+    float2 t;
+};
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 struct Float4_
@@ -300,7 +312,7 @@ struct packed_type<float, 4>
 template <>
 struct packed_type<float, 8>
 {
-    using type = float8;
+    using type = Float8_;
 };
 
 template <>
@@ -312,13 +324,13 @@ struct packed_type<double, 2>
 template <>
 struct packed_type<double, 4>
 {
-    using type = float8;
+    using type = Float8_;
 };
 
 template <>
 struct packed_type<double, 8>
 {
-    using type = float16;
+    using type = Float16_;
 };
 
 
