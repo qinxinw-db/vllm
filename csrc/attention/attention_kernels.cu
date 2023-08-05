@@ -20,6 +20,7 @@
 
 #include "attention_dtypes.h"
 #include "attention_utils.cuh"
+#include "../common/quant_utils.h"
 
 #include <algorithm>
 
@@ -84,7 +85,10 @@ __global__ void single_query_cached_kv_attention_kernel(
   const float* __restrict__ alibi_slopes, // [num_heads]
   const int q_stride,
   const int kv_block_stride,
-  const int kv_head_stride) {
+  const int kv_head_stride,
+  const float k_scale,
+  const float v_scale,
+  const bool enable_int8_kv_cache) {
   constexpr int THREAD_GROUP_SIZE = MAX(WARP_SIZE / BLOCK_SIZE, 1);
   constexpr int NUM_TOKENS_PER_THREAD_GROUP = (BLOCK_SIZE + WARP_SIZE - 1) / WARP_SIZE;
   constexpr int NUM_WARPS = NUM_THREADS / WARP_SIZE;
@@ -162,13 +166,20 @@ __global__ void single_query_cached_kv_attention_kernel(
 
 #pragma unroll
       for (int j = 0; j < NUM_VECS_PER_THREAD; j++) {
-        const scalar_t* k_ptr = k_cache + physical_block_number * kv_block_stride
+        const scalar_t* k_cache_ptr = k_cache + physical_block_number * kv_block_stride
                                         + kv_head_idx * kv_head_stride
                                         + physical_block_offset * x;
+        const int8_t* key_cache_int8 = reinterpret_cast<const int8_t*>(k_cache_ptr);
+
         const int vec_idx = thread_group_offset + j * THREAD_GROUP_SIZE;
         const int offset1 = (vec_idx * VEC_SIZE) / x;
         const int offset2 = (vec_idx * VEC_SIZE) % x;
-        k_vecs[j] = *reinterpret_cast<const K_vec*>(k_ptr + offset1 * BLOCK_SIZE * x + offset2);
+        const int offset = offset1 * BLOCK_SIZE * x + offset2;
+        if (enable_int8_kv_cache) {
+          mmha::load_int8_kv_cache_vec(&k_vecs[j], key_cache_int8, offset, k_scale);
+        } else {
+          k_vecs[j] = *reinterpret_cast<const K_vec*>(k_cache_ptr + offset);
+        }
       }
 
       // Compute dot product.
@@ -250,14 +261,23 @@ __global__ void single_query_cached_kv_attention_kernel(
     L_vec logits_vec;
     from_float(logits_vec, *reinterpret_cast<Float_L_vec*>(logits + token_idx));
 
-    const scalar_t* v_ptr = v_cache + physical_block_number * kv_block_stride
+    const scalar_t* v_cache_ptr = v_cache + physical_block_number * kv_block_stride
                                     + kv_head_idx * kv_head_stride;
+    
+    const int8_t* value_cache_int8 = reinterpret_cast<const int8_t*>(v_cache_ptr);
+  
 #pragma unroll
     for (int i = 0; i < NUM_ROWS_PER_THREAD; i++) {
       const int row_idx = lane / NUM_V_VECS_PER_ROW + i * NUM_ROWS_PER_ITER;
       if (row_idx < HEAD_SIZE) {
         const int offset = row_idx * BLOCK_SIZE + physical_block_offset;
-        V_vec v_vec = *reinterpret_cast<const V_vec*>(v_ptr + offset);
+        // V_vec v_vec = *reinterpret_cast<const V_vec*>(v_ptr + offset);
+        V_vec v_vec;
+        if (enable_int8_kv_cache) {
+          mmha::load_int8_kv_cache_vec(&v_vec, value_cache_int8, offset, v_scale);
+        } else {
+          v_vec = *reinterpret_cast<const V_vec*>(v_cache_ptr + offset);
+        }
         accs[i] += dot(logits_vec, v_vec);
       }
     }
@@ -340,7 +360,10 @@ __global__ void single_query_cached_kv_attention_kernel(
     alibi_slopes_ptr,                                                                         \
     q_stride,                                                                                 \
     kv_block_stride,                                                                          \
-    kv_head_stride);
+    kv_head_stride,                                                                           \
+    k_scale,                                                                                  \
+    v_scale,                                                                                  \
+    enable_in8_kv_cache);
 
 // TODO(woosuk): Tune NUM_THREADS.
 template<
@@ -357,6 +380,9 @@ void single_query_cached_kv_attention_launcher(
   torch::Tensor& block_tables,
   torch::Tensor& context_lens,
   int max_context_len,
+  float k_scale,
+  float v_scale,
+  bool enable_in8_kv_cache,
   const c10::optional<torch::Tensor>& alibi_slopes) {
   int num_seqs = query.size(0);
   int num_heads = query.size(1);
@@ -438,6 +464,9 @@ void single_query_cached_kv_attention_launcher(
     block_tables,                                                   \
     context_lens,                                                   \
     max_context_len,                                                \
+    k_scale,                                                        \
+    v_scale,                                                        \
+    enable_in8_kv_cache, \
     alibi_slopes);
 
 // NOTE(woosuk): To reduce the compilation time, we omitted block sizes
@@ -487,6 +516,9 @@ void single_query_cached_kv_attention(
   torch::Tensor& context_lens,    // [num_seqs]
   int block_size,
   int max_context_len,
+  float k_scale,
+  float v_scale,
+  bool enable_in8_kv_cache,
   const c10::optional<torch::Tensor>& alibi_slopes) {
   if (query.dtype() == at::ScalarType::Float) {
     CALL_KERNEL_LAUNCHER_BLOCK_SIZE(float);

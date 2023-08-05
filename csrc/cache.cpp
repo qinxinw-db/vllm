@@ -18,14 +18,19 @@ void reshape_and_cache(
   torch::Tensor& value,
   torch::Tensor& key_cache,
   torch::Tensor& value_cache,
-  torch::Tensor& slot_mapping);
+  torch::Tensor& slot_mapping,
+  bool enable_int8_kv_cache,
+  float k_scale,
+  float v_scale);
 
 void gather_cached_kv(
   torch::Tensor& key,
   torch::Tensor& value,
   torch::Tensor& key_cache,
   torch::Tensor& value_cache,
-  torch::Tensor& slot_mapping);
+  torch::Tensor& slot_mapping,
+  bool enable_int8_kv_cache,
+  float scale);
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def(

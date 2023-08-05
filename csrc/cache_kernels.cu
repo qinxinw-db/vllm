@@ -1,10 +1,14 @@
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
+#include "common/quant_utils.h"
+
 
 #include <algorithm>
 #include <cassert>
 #include <map>
 #include <vector>
+#include <iostream>
+#include <string>
 
 void swap_blocks(
   torch::Tensor& src,
@@ -74,7 +78,7 @@ __global__ void copy_blocks_kernel(
     int src_offset = src_block_offset + i;
     int dst_offset = dst_block_offset + i;
     value_cache[dst_offset] = value_cache[src_offset];
-  }
+	  }
 }
 
 } // namespace vllm
@@ -151,13 +155,30 @@ __global__ void reshape_and_cache_kernel(
   const int num_heads,
   const int head_size,
   const int block_size,
-  const int x) {
+  const int x,
+  const bool enable_int8_kv_cache,
+  const float k_scale,
+  const float v_scale) {
   const int token_idx = blockIdx.x;
   const int slot_idx = slot_mapping[token_idx];
   const int block_idx = slot_idx / block_size;
   const int block_offset = slot_idx % block_size;
 
   const int n = num_heads * head_size;
+  
+  printf("scalar_t size=%u", sizeof(scalar_t));
+  // We allow only fp32/fp16/bf16 as input types
+  static_assert(sizeof(scalar_t)==2 ||sizeof(scalar_t) == 4 || sizeof(scalar_t) == 8, "wrong type");
+
+  int8_t* key_cache_int8 = reinterpret_cast<int8_t*>(key_cache);
+  int8_t* value_cache_int8 = reinterpret_cast<int8_t*>(value_cache);
+
+  constexpr int X_ELEMS = 16 / sizeof(scalar_t);
+  using T_src = typename mmha::packed_type<scalar_t, X_ELEMS>::type;
+
+  const T_src* key_src = reinterpret_cast<const T_src*>(key);
+  const T_src* val_src = reinterpret_cast<const T_src*>(value);
+
   for (int i = threadIdx.x; i < n; i += blockDim.x) {
     const int src_key_idx = token_idx * key_stride + i;
     const int src_value_idx = token_idx * value_stride + i;
@@ -176,8 +197,14 @@ __global__ void reshape_and_cache_kernel(
                               + head_idx * head_size * block_size
                               + head_offset * block_size
                               + block_offset;
-    key_cache[tgt_key_idx] = __ldg(&key[src_key_idx]);
-    value_cache[tgt_value_idx] = __ldg(&value[src_value_idx]);
+                                      
+    if (enable_int8_kv_cache) {
+	    mmha::store_int8_kv_cache_vec<T_src, int8_t>(key_cache_int8, &key_src[src_key_idx], tgt_key_idx, k_scale);
+	    mmha::store_int8_kv_cache_vec<T_src, int8_t>(value_cache_int8, &val_src[src_value_idx], tgt_value_idx, v_scale);
+    } else {
+      key_cache[tgt_key_idx] = __ldg(&key[src_key_idx]);
+      value_cache[tgt_value_idx] = __ldg(&value[src_value_idx]);
+    }
   }
 }
 
@@ -188,7 +215,11 @@ void reshape_and_cache(
   torch::Tensor& value,         // [num_tokens, num_heads, head_size]
   torch::Tensor& key_cache,     // [num_blocks, num_heads, head_size/x, block_size, x]
   torch::Tensor& value_cache,   // [num_blocks, num_heads, head_size, block_size]
-  torch::Tensor& slot_mapping)  // [num_tokens]
+  torch::Tensor& slot_mapping, // [num_tokens]
+  bool enable_int8_kv_cache,
+  float k_scale, // quantization scale
+  float v_scale
+  )  
 {
   int num_tokens = key.size(0);
   int num_heads = key.size(1);
@@ -219,7 +250,10 @@ void reshape_and_cache(
         num_heads,
         head_size,
         block_size,
-        x);
+        x,
+        enable_int8_kv_cache,
+        k_scale,
+        v_scale);
     });
 }
 
@@ -281,7 +315,9 @@ __global__ void gather_cached_kv_kernel_optimized(
     const int num_heads,
     const int head_size,
     const int block_size,
-    const int x)
+    const int x,
+    const bool enable_int8_kv_cache,
+    const float scale)
 {
     const int token_idx = blockIdx.x;
     const int slot_idx = slot_mapping[token_idx];
@@ -332,6 +368,7 @@ __global__ void gather_cached_kv_kernel_optimized(
 
             keys_to_store[j] = __ldg(&key_cache[src_key_idx]);
             values_to_store[j] = __ldg(&value_cache[src_value_idx]);
+            
         }
 
         #pragma unroll
@@ -350,7 +387,10 @@ void gather_cached_kv(
   torch::Tensor& value,         // [out] [num_tokens, num_heads, head_size]
   torch::Tensor& key_cache,     // [in]  [num_blocks, num_heads, head_size/x, block_size, x]
   torch::Tensor& value_cache,   // [in]  [num_blocks, num_heads, head_size, block_size]
-  torch::Tensor& slot_mapping)  // [in]  [num_tokens]
+  torch::Tensor& slot_mapping, // [in]  [num_tokens]
+  bool enable_int8_kv_cache,
+  float scale
+  )  
 {
   int num_tokens = key.size(0);
   int num_heads = key.size(1);
@@ -381,6 +421,9 @@ void gather_cached_kv(
         num_heads,
         head_size,
         block_size,
-        x);
-    });
+        x,
+        enable_int8_kv_cache,
+        scale);
+      }
+  );
 }
