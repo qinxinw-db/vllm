@@ -2093,8 +2093,8 @@ inline __device__ int64_t cast_to_int8(Float8_ val)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <typename Vec_k, typename T>
-inline __device__ void load_int8_kv_cache_vec(Vec_k* tgt_vec, const T* cache_ptr, const int cache_idx,const float scale)
+template <typename T_src, typename cacheT>
+inline __device__ void load_int8_kv_cache_vec(vecT* tgt_vec, const cacheT* cache_ptr, const int cache_idx,const float scale)
 {
     // using Packed_Int8_t = typename packed_type<int8_t, num_elems<Vec_k>::value>::type;
     // using Packed_Float_t = typename packed_type<float, num_elems<Vec_k>::value>::type;
@@ -2102,8 +2102,8 @@ inline __device__ void load_int8_kv_cache_vec(Vec_k* tgt_vec, const T* cache_ptr
 
     // convert_from_float(vec, mul<Packed_Float_t>(scale, float_from_int8(quant)));
 
-    using Packed_Int8_t = typename packed_type<int8_t, num_elems<Vec_k>::value>::type;
-    using Packed_Float_t = typename packed_type<float, num_elems<Vec_k>::value>::type;
+    using Packed_Int8_t = typename packed_type<int8_t, num_elems<T_src>::value>::type;
+    using Packed_Float_t = typename packed_type<float, num_elems<T_src>::value>::type;
     const auto quant = *reinterpret_cast<const Packed_Int8_t*>(&cache_ptr[cache_idx]);
 
     convert_from_float(tgt_vec, mul<Packed_Float_t>(scale, float_from_int8(quant)));
@@ -2112,8 +2112,8 @@ inline __device__ void load_int8_kv_cache_vec(Vec_k* tgt_vec, const T* cache_ptr
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <typename Vec_k, typename T>
-inline __device__ void store_int8_kv_cache_vec(T* cache, const Vec_k& src_vec, const int cache_idx, const float scale)
+template <typename T_src, typename cacheT>
+inline __device__ void store_int8_kv_cache_vec(cacheT* cache, const T_src& src_vec, const int cache_idx, const float scale)
 {
     // using Packed_Int8_t = typename packed_type<int8_t, num_elems<Vec_k>::value>::type;
     // using Packed_Float_t = typename packed_type<float, num_elems<Vec_k>::value>::type;
@@ -2121,8 +2121,8 @@ inline __device__ void store_int8_kv_cache_vec(T* cache, const Vec_k& src_vec, c
 
     // *reinterpret_cast<Packed_Int8_t*>(&pointer[idx]) = out_quant;
 
-    using Packed_Int8_t = typename packed_type<int8_t, num_elems<Vec_k>::value>::type;
-    using Packed_Float_t = typename packed_type<float, num_elems<Vec_k>::value>::type;
+    using Packed_Int8_t = typename packed_type<int8_t, num_elems<T_src>::value>::type;
+    using Packed_Float_t = typename packed_type<float, num_elems<T_src>::value>::type;
     Packed_Int8_t out_quant = cast_to_int8(mul<Packed_Float_t>(scale, convert_to_float(src_vec)));
 
     *reinterpret_cast<Packed_Int8_t*>(&cache[cache_idx]) = out_quant;

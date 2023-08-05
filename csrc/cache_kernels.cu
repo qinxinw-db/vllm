@@ -199,8 +199,8 @@ __global__ void reshape_and_cache_kernel(
                               + block_offset;
                                       
     if (enable_int8_kv_cache) {
-	    mmha::store_int8_kv_cache_vec<T_src, int8_t>(key_cache_int8, key_src[src_key_idx], tgt_key_idx, k_scale);
-	    mmha::store_int8_kv_cache_vec<T_src, int8_t>(value_cache_int8, val_src[src_value_idx], tgt_value_idx, v_scale);
+	    mmha::store_int8_kv_cache_vec<T_src, int8_t>(key_cache_int8, &key_src[src_key_idx], tgt_key_idx, k_scale);
+	    mmha::store_int8_kv_cache_vec<T_src, int8_t>(value_cache_int8, &val_src[src_value_idx], tgt_value_idx, v_scale);
     } else {
       key_cache[tgt_key_idx] = __ldg(&key[src_key_idx]);
       value_cache[tgt_value_idx] = __ldg(&value[src_value_idx]);
